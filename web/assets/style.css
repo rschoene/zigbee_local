@@ -113,11 +113,32 @@ main {
     border: 1px solid #334155;
 }
 
+.chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
 .chart-card h2 {
     font-size: 1rem;
     font-weight: 500;
-    margin-bottom: 0.75rem;
     color: #cbd5e1;
+}
+
+.chart-actions {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.btn-download {
+    background: #334155;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.6rem;
+}
+
+.btn-download:hover {
+    background: #475569;
 }
 
 .chart-card canvas {
