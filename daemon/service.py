@@ -100,6 +100,50 @@ class Service:
             except asyncio.TimeoutError:
                 pass
 
+    async def _reapply_reporting_configs(self) -> None:
+        """Re-apply stored reporting configs to devices after startup.
+
+        This handles the case where a sensor was reset (e.g. battery swap)
+        and lost its reporting configuration. We wait a short delay for
+        devices to join, then re-send Configure Reporting for each stored
+        entry. For sleepy devices this may take up to ~10 min per device
+        (the retry loop in configure_reporting), so we run them
+        sequentially in the background.
+        """
+        # Give devices time to join after the coordinator starts.
+        await asyncio.sleep(10)
+
+        configs = self.db.get_reporting_config()
+        if not configs:
+            return
+
+        log.info("Re-applying %d reporting config(s) on startup", len(configs))
+        for (source_id, device_id, cluster_id, attr_id), cfg in configs.items():
+            if self._stop.is_set():
+                return
+            src = next((s for s in self.sources if s.source_id == source_id), None)
+            if src is None:
+                continue
+            try:
+                await src.configure_reporting(
+                    device_id,
+                    cluster_id,
+                    attr_id,
+                    cfg["min_interval"],
+                    cfg["max_interval"],
+                    cfg.get("reportable_change"),
+                )
+                log.info(
+                    "Re-applied reporting config: %s/%s cluster=0x%04X attr=0x%04X",
+                    source_id, device_id, cluster_id, attr_id,
+                )
+            except Exception as e:
+                log.warning(
+                    "Failed to re-apply reporting config for %s/%s "
+                    "cluster=0x%04X attr=0x%04X: %s",
+                    source_id, device_id, cluster_id, attr_id, e,
+                )
+
     # ------------------------------------------------------------------ #
     # command server (Unix socket)
     # ------------------------------------------------------------------ #
@@ -236,11 +280,13 @@ class Service:
 
         refresh = asyncio.create_task(self._refresh_monitored())
         cmd_server = asyncio.create_task(self._command_server())
+        reapply = asyncio.create_task(self._reapply_reporting_configs())
         try:
             await self._stop.wait()
         finally:
             refresh.cancel()
             cmd_server.cancel()
+            reapply.cancel()
             for src in self.sources:
                 try:
                     await src.stop()
