@@ -373,6 +373,9 @@ class ZigpySource(Source):
                 value = raw / divisor
                 if divisor == 1:
                     value = raw  # keep int as int
+                # Clamp battery percentage to 0–100 (some devices overshoot)
+                if name == "battery_percentage_remaining":
+                    value = max(0, min(100, value))
                 self._emit_reading(device_id, name, value, unit=unit)
             else:
                 self._emit_reading(device_id, name, raw)
