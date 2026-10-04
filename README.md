@@ -374,5 +374,59 @@ read while the daemon writes.
 |---------------|----------------------------------------------------------------|
 | `devices`     | every device a source has reported + its known metrics + `left_at` (in-network state) |
 | `monitored`   | the registry of `(source, device, metric)` we record          |
-| `readings`    | the time series of readings for monitored metrics             |
+| `metrics`     | one row per (source, device, metric) with its unit             |
+| `readings`    | the time series of readings, keyed by `metric_id`              |
 | `source_status` | per-source read status (`ok`/`error` + reason) for the CLI  |
+
+## Website
+
+A PHP web frontend in `web/` provides interactive charts with per-user access
+control.
+
+### Requirements
+
+- PHP 8.1+ with `pdo_sqlite`
+- A web server (Apache, Nginx, or `php -S`)
+- Read access to the SQLite database for the web server user
+
+### Quick start (development)
+
+```bash
+cd web
+php -S 0.0.0.0:8080
+# open http://localhost:8080
+```
+
+### Production (Apache/Nginx)
+
+Point your web server's document root at the `web/` directory. Make sure the
+web server user (e.g. `www-data`) can read the database:
+
+```bash
+chmod o+r /opt/zigbee_local/data/zigbee.db
+chmod o+rx /opt/zigbee_local /opt/zigbee_local/data
+```
+
+### Configuration
+
+Edit `web/config.php`:
+
+- **`database`** — absolute path to the SQLite file.
+- **`users`** — map of `username => [password, metrics]`.
+  - Passwords: plain-text or bcrypt hash (`php -r "echo password_hash('secret', PASSWORD_DEFAULT);"`).
+  - Metrics: map of `"source_id|device_id|metric" => "Display Name"`.
+    The pipe delimiter is used because IEEE addresses contain colons.
+
+### Features
+
+- Session-based login/logout
+- Per-user metric access control (users only see what's listed for them)
+- Custom display names for metrics
+- Interactive Chart.js line charts (time on x-axis, value on y-axis)
+- Adjustable time range (datetime pickers + preset buttons: 1h/6h/24h/7d)
+- PNG and CSV download per chart
+- Dark theme, responsive layout
+
+## License
+
+[GPL v3](LICENSE)
