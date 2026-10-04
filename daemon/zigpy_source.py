@@ -95,6 +95,7 @@ class ZigpySource(Source):
         self._app_task: asyncio.Task | None = None
         self._reinit_task: asyncio.Task | None = None
         self._running = False
+        self._attached: set[str] = set()  # device_ids with listeners already wired
 
     # ------------------------------------------------------------------ #
     # lifecycle
@@ -149,6 +150,7 @@ class ZigpySource(Source):
 
     async def stop(self) -> None:
         self._running = False
+        self._attached.clear()
         if self._reinit_task is not None:
             self._reinit_task.cancel()
             try:
@@ -236,6 +238,7 @@ class ZigpySource(Source):
     def device_left(self, device) -> None:
         device_id = self._device_id(device)
         log.info("[%s] device left: %s", self.source_id, device.ieee)
+        self._attached.discard(device_id)
         self._emit_device_left(device_id)
 
     def connection_lost(self, exc) -> None:
@@ -253,6 +256,11 @@ class ZigpySource(Source):
             log.debug("[%s] skipping coordinator", self.source_id)
             return
         device_id = self._device_id(device)
+        # Prevent duplicate listeners (re-init can fire device_initialized again).
+        if device_id in self._attached:
+            log.debug("[%s] already attached, skipping: %s", self.source_id, device_id)
+            return
+        self._attached.add(device_id)
         name_map = self._build_metric_name_map(device)
         n_eps = len(device.non_zdo_endpoints)
         n_clusters = 0
