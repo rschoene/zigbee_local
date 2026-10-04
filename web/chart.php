@@ -175,10 +175,15 @@ function createChart(key, displayName) {
     });
 }
 
+// Convert datetime-local value (no tz) to ISO 8601 UTC
+function toISO(localVal) {
+    return new Date(localVal).toISOString();
+}
+
 // --- Data fetching ---
 async function fetchMetric(key) {
-    const from = document.getElementById('time-from').value;
-    const to = document.getElementById('time-to').value;
+    const from = toISO(document.getElementById('time-from').value);
+    const to = toISO(document.getElementById('time-to').value);
     const url = `api.php?metric=${encodeURIComponent(key)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
     const res = await fetch(url);
     if (!res.ok) return;
