@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# zigbee — CLI for the zigbee-daemon service
+# Installed to /usr/bin/zigbee by install.sh
+cd /opt/zigbee_local
+exec /opt/zigbee_local/.venv/bin/python /opt/zigbee_local/cli/cli.py "$@"

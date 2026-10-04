@@ -1,0 +1,20 @@
+# Zigbee daemon configuration.
+#
+# `database` is the SQLite file shared by the daemon and the CLI.
+# `sources` is a list; each entry has an `id`, a `type` and type-specific
+# options. You can run any number of sources at once (e.g. two zigpy dongles).
+#
+# A simulated source (no hardware needed) lives in `config_mock.yaml`.
+
+database: ./data/zigbee.db
+
+sources:
+  # --- Real Zigbee coordinator via zigpy ------------------------------- #
+  # Sonoff Zigbee 3.0 USB Dongle Plus (CP210x UART bridge) on /dev/ttyUSB0.
+  # NOTE: your user must own the port (see udev/install.sh) to open it, e.g.:
+  #   ./udev/install.sh --user $(whoami)
+  #
+  - id: dongle1
+    type: zigpy
+    radio: zigpy-znp           # ZNP protocol (Sonoff / CC2652 / CC1352)
+    path: /dev/ttyUSB0

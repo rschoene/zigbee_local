@@ -1,0 +1,27 @@
+# Zigbee daemon configuration — SIMULATED source (no hardware needed).
+#
+# Use this to exercise the whole pipeline (daemon + CLI + SQLite) without a
+# physical dongle. For the real Sonoff dongle, use `config.yaml`.
+#
+# `database` is the SQLite file shared by the daemon and the CLI.
+# `sources` is a list; each entry has an `id`, a `type` and type-specific
+# options. You can run any number of sources at once.
+
+database: ./data/zigbee.db
+
+sources:
+  # --- Simulated source (no hardware needed) --------------------------- #
+  - id: mock
+    type: mock
+    interval: 2.0            # seconds between readings per device
+    devices:
+      - id: temp-living
+        name: "Living room temperature"
+        metrics:
+          - { name: temperature, unit: "°C", base: 21.5, jitter: 0.3 }
+          - { name: humidity,    unit: "%",  base: 45.0, jitter: 1.5 }
+      - id: power-plug-kitchen
+        name: "Kitchen power plug"
+        metrics:
+          - { name: power,   unit: "W", base: 120.0, jitter: 25.0 }
+          - { name: energy,  unit: "kWh", base: 12.4, jitter: 0.01 }

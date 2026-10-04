@@ -1,0 +1,13 @@
+# Core (always required)
+PyYAML>=6.0
+
+# Real Zigbee support via zigpy + the ZNP radio (Sonoff / CC2652 / CC1352 dongles).
+# `zigpy-znp` pulls in `pyserial` for the serial port.
+zigpy>=2.3
+zigpy-znp>=1.1
+pyserial>=3.5
+
+# Other radios (uncomment if you use a different dongle):
+#   Conbee / deCONZ  ->  zigpy-deconz
+#   NXP JN5169       ->  zigpy-xhci
+#   TI CC2531 (bellows) -> bellows
