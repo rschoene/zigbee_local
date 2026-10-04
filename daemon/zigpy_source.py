@@ -442,7 +442,6 @@ class ZigpySource(Source):
         if self._app is None:
             raise RuntimeError("Source is not connected")
         import zigpy.types as t
-        from zigpy.zcl import foundation
 
         ieee = t.EUI64.convert(device_id)
         dev = self._app.devices.get(ieee)
@@ -466,44 +465,42 @@ class ZigpySource(Source):
         if reportable_change is None:
             reportable_change = 1  # report on any change >= 1 unit
 
-        # Build the ZCL AttributeReportingConfig manually so we can send
-        # it fire-and-forget (no reply expected).
-        attr_def = cluster.find_attribute(attr_id)
-        cfg = foundation.AttributeReportingConfig()
-        cfg.direction = foundation.ReportingDirection.SendReports
-        cfg.attrid = attr_def.id
-        cfg.datatype = (
-            attr_def.zcl_type
-            if attr_def.zcl_type is not None
-            else foundation.DataType.from_python_type(attr_def.type).type_id
-        )
-        cfg.min_interval = min_interval
-        cfg.max_interval = max_interval
-        cfg.reportable_change = reportable_change
+        # Sleepy devices are only reachable during their brief poll window
+        # (the SNZB-02DR2 polls roughly every 10 min). Retry until the
+        # device wakes. 120 attempts × 5 s = 10 min max.
+        max_attempts = 120
+        delay_s = 5.0
+        last_err: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = await cluster.configure_reporting(
+                    attr_id, min_interval, max_interval, reportable_change
+                )
+                statuses = {str(k): str(v) for k, v in result.items()}
+                log.info(
+                    "[%s] configure_reporting %s cluster=0x%04X attr=0x%04X "
+                    "min=%d max=%d change=%d -> %s (attempt %d)",
+                    self.source_id, device_id, cluster_id, attr_id,
+                    min_interval, max_interval, reportable_change, statuses,
+                    attempt,
+                )
+                return f"configured 0x{cluster_id:04X}/0x{attr_id:04X}: {statuses}"
+            except Exception as e:
+                last_err = e
+                if attempt % 12 == 0:
+                    log.info(
+                        "[%s] configure_reporting still waiting for device "
+                        "to wake... (%d/%d attempts, ~%ds elapsed)",
+                        self.source_id, attempt, max_attempts,
+                        attempt * delay_s,
+                    )
+                if attempt < max_attempts:
+                    await asyncio.sleep(delay_s)
 
-        # Fire-and-forget: the ZNP stack queues the frame for the device's
-        # next poll. No need to wait for the device to be awake.
-        try:
-            await cluster._configure_reporting(
-                [cfg],
-                manufacturer=None,
-                expect_reply=False,
-                ask_for_ack=False,
-            )
-        except Exception as e:
-            raise RuntimeError(
-                f"configure_reporting failed to send: {e!r}"
-            ) from e
-
-        log.info(
-            "[%s] configure_reporting (fire-and-forget) %s cluster=0x%04X "
-            "attr=0x%04X min=%d max=%d change=%d",
-            self.source_id, device_id, cluster_id, attr_id,
-            min_interval, max_interval, reportable_change,
-        )
-        return (
-            f"configured 0x{cluster_id:04X}/0x{attr_id:04X} "
-            f"(fire-and-forget, delivered on next device poll)"
+        raise RuntimeError(
+            f"configure_reporting failed after {max_attempts} attempts "
+            f"({max_attempts * delay_s:.0f}s). The device may be asleep or "
+            f"not on the network. Last error: {last_err!r}"
         )
 
     # ------------------------------------------------------------------ #
