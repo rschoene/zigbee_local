@@ -137,6 +137,11 @@ async function fetchMetric(key) {
     chart.data.datasets[0].label = `${json.metric} (${json.unit})`;
     chart.data.labels = json.data.map(d => d.t);
     chart.data.datasets[0].data = json.data.map(d => ({ x: d.t, y: d.v }));
+    chart.options.scales.y.title = {
+        display: true,
+        text: json.unit || '',
+        color: '#94a3b8',
+    };
     chart.update('none');
 }
 
