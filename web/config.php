@@ -17,7 +17,8 @@
  */
 
 return [
-    'database' => __DIR__ . '/../data/zigbee.db',
+    'database' => '/opt/zigbee_local/data/zigbee.db',
+    'debug' => true,  // set to false in production
 
     'users' => [
         'admin' => [

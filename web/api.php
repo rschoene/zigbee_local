@@ -36,10 +36,13 @@ if (!array_key_exists($metricKey, $allowedMetrics)) {
 $to = $_GET['to'] ?? date('c');
 $from = $_GET['from'] ?? date('c', time() - 86400);
 
-// Validate / normalize
+// Validate / normalize. Convert to UTC since the daemon stores UTC timestamps.
 try {
     $fromDt = new DateTime($from);
     $toDt = new DateTime($to);
+    $utc = new DateTimeZone('UTC');
+    $fromDt->setTimezone($utc);
+    $toDt->setTimezone($utc);
 } catch (Exception $e) {
     http_response_code(400);
     header('Content-Type: application/json');
@@ -56,10 +59,12 @@ if ($fromDt >= $toDt) {
 
 // Query the database
 $dbPath = $config['database'];
+$debug = $config['debug'] ?? false;
+
 if (!file_exists($dbPath)) {
     http_response_code(500);
     header('Content-Type: application/json');
-    echo json_encode(['error' => 'database not found']);
+    echo json_encode(['error' => $debug ? "database not found: $dbPath" : 'database not found']);
     exit;
 }
 
@@ -69,7 +74,7 @@ try {
 } catch (Exception $e) {
     http_response_code(500);
     header('Content-Type: application/json');
-    echo json_encode(['error' => 'database error']);
+    echo json_encode(['error' => $debug ? 'database error: ' . $e->getMessage() : 'database error']);
     exit;
 }
 
@@ -83,12 +88,15 @@ if (count($parts) !== 3) {
 }
 [$sourceId, $deviceId, $metric] = $parts;
 
+// Stored format: "2026-10-04T12:34:56.789012+00:00"
+// Use >= for from, < for to+1s to handle the microsecond/offset suffix.
+$toDt->modify('+1 second');
 $stmt = $db->prepare(
     "SELECT r.ts, r.value
      FROM readings r
      JOIN metrics m ON m.id = r.metric_id
      WHERE m.source_id = ? AND m.device_id = ? AND m.metric = ?
-       AND r.ts >= ? AND r.ts <= ?
+       AND r.ts >= ? AND r.ts < ?
      ORDER BY r.ts ASC"
 );
 $stmt->execute([$sourceId, $deviceId, $metric, $fromDt->format('Y-m-d\TH:i:s'), $toDt->format('Y-m-d\TH:i:s')]);
