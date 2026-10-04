@@ -82,7 +82,7 @@ def _fmt_value(row) -> str:
         if row["unit"]:
             s += f" {row['unit']}"
         return s
-    return row["value_text"] or "-"
+    return "-"
 
 
 def _source_status(db: Database, source_id: str) -> str:

@@ -52,7 +52,6 @@ CREATE TABLE IF NOT EXISTS readings (
     device_id  TEXT NOT NULL,
     metric     TEXT NOT NULL,
     value      REAL,
-    value_text TEXT,
     unit       TEXT,
     ts         TEXT NOT NULL
 );
@@ -104,6 +103,11 @@ class Database:
             self._conn.execute("ALTER TABLE devices ADD COLUMN left_at TEXT")
         if "metric_map" not in cols:
             self._conn.execute("ALTER TABLE devices ADD COLUMN metric_map TEXT")
+
+        # Drop the obsolete value_text column from readings (SQLite >= 3.35).
+        rcols = {r["name"] for r in self._conn.execute("PRAGMA table_info(readings)")}
+        if "value_text" in rcols:
+            self._conn.execute("ALTER TABLE readings DROP COLUMN value_text")
 
     def close(self) -> None:
         with self._lock:
@@ -269,9 +273,9 @@ class Database:
         ts = r.ts.isoformat() if hasattr(r.ts, "isoformat") else str(r.ts)
         with self._lock, self._conn:
             self._conn.execute(
-                "INSERT INTO readings(source_id, device_id, metric, value, value_text, unit, ts) "
-                "VALUES(?,?,?,?,?,?,?)",
-                (r.source_id, r.device_id, r.metric, r.value, r.value_text, r.unit, ts),
+                "INSERT INTO readings(source_id, device_id, metric, value, unit, ts) "
+                "VALUES(?,?,?,?,?,?)",
+                (r.source_id, r.device_id, r.metric, r.value, r.unit, ts),
             )
 
     def max_reading_id(self) -> int:
@@ -282,7 +286,7 @@ class Database:
     def readings_since(self, last_id: int, limit: int = 500) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, source_id, device_id, metric, value, value_text, unit, ts "
+                "SELECT id, source_id, device_id, metric, value, unit, ts "
                 "FROM readings WHERE id > ? ORDER BY id ASC LIMIT ?",
                 (last_id, limit),
             ).fetchall()
@@ -310,7 +314,7 @@ class Database:
         where = "WHERE source_id = ?" if source_id else ""
         args: list[Any] = [source_id] if source_id else []
         q = f"""
-            SELECT r.source_id, r.device_id, r.metric, r.value, r.value_text, r.unit, r.ts
+            SELECT r.source_id, r.device_id, r.metric, r.value, r.unit, r.ts
             FROM readings r
             JOIN (
                 SELECT source_id, device_id, metric, MAX(id) AS max_id

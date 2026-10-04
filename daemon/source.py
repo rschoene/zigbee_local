@@ -26,7 +26,6 @@ class Reading:
     device_id: str
     metric: str
     value: float | None
-    value_text: str | None
     unit: str | None
     ts: datetime
 
@@ -84,17 +83,14 @@ class Source(abc.ABC):
     ) -> None:
         if self._on_reading is None:
             return
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            num, text = float(value), None
-        else:
-            num, text = None, str(value)
+        # All monitored attributes are numeric; store the value as a float.
+        num = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
         self._on_reading(
             Reading(
                 source_id=self.source_id,
                 device_id=device_id,
                 metric=metric,
                 value=num,
-                value_text=text,
                 unit=unit,
                 ts=ts or datetime.now(timezone.utc),
             )
