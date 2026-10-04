@@ -1,0 +1,198 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+}
+
+/* --- Header --- */
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 2rem;
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+}
+
+header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.user-label {
+    color: #94a3b8;
+    font-size: 0.9rem;
+}
+
+/* --- Buttons --- */
+.btn {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s;
+}
+
+.btn:hover {
+    background: #2563eb;
+}
+
+.btn-sm {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+}
+
+/* --- Controls --- */
+main {
+    padding: 1.5rem 2rem;
+}
+
+.controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: #1e293b;
+    border-radius: 8px;
+}
+
+.controls label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: #94a3b8;
+}
+
+.controls input[type="datetime-local"] {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #e2e8f0;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+}
+
+.presets {
+    display: flex;
+    gap: 0.4rem;
+    margin-left: auto;
+}
+
+/* --- Charts --- */
+#charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+    gap: 1.5rem;
+}
+
+.chart-card {
+    background: #1e293b;
+    border-radius: 8px;
+    padding: 1.25rem;
+    border: 1px solid #334155;
+}
+
+.chart-card h2 {
+    font-size: 1rem;
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+    color: #cbd5e1;
+}
+
+.chart-card canvas {
+    width: 100% !important;
+    height: 280px !important;
+}
+
+/* --- Login --- */
+.login-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+}
+
+.login-box {
+    background: #1e293b;
+    padding: 2.5rem;
+    border-radius: 12px;
+    border: 1px solid #334155;
+    width: 100%;
+    max-width: 360px;
+}
+
+.login-box h1 {
+    font-size: 1.4rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.login-box form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.login-box label {
+    font-size: 0.85rem;
+    color: #94a3b8;
+}
+
+.login-box input {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #e2e8f0;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.95rem;
+}
+
+.login-box input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.login-box button {
+    margin-top: 0.5rem;
+}
+
+.error {
+    color: #f87171;
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+}
+
+/* --- Responsive --- */
+@media (max-width: 600px) {
+    #charts {
+        grid-template-columns: 1fr;
+    }
+    .controls {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .presets {
+        margin-left: 0;
+    }
+}
