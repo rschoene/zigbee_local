@@ -24,9 +24,8 @@ return [
         'admin' => [
             'password' => 'admin',  // TODO: replace with password_hash('...', PASSWORD_DEFAULT)
             'metrics' => [
-                'dongle1|a4:c1:38:17:64:0a:ff:ff|temperature' => 'Temperature',
-                'dongle1|a4:c1:38:17:64:0a:ff:ff|humidity'    => 'Humidity',
-                'dongle1|a4:c1:38:17:64:0a:ff:ff|battery_voltage' => 'Battery',
+                'dongle1|a4:c1:38:17:64:0a:ff:ff|temperature_measured_value' => 'Temperature',
+                'dongle1|a4:c1:38:17:64:0a:ff:ff|relative_measured_value'    => 'Humidity',
             ],
         ],
         // 'viewer' => [
