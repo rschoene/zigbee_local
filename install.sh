@@ -49,6 +49,38 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------ #
+# dependency check
+# ------------------------------------------------------------------ #
+MISSING=()
+
+if ! command -v python3 &>/dev/null; then
+    MISSING+=("python3")
+fi
+
+# Check that python3 has the venv module (python3-venv on Debian/Ubuntu)
+if command -v python3 &>/dev/null; then
+    if ! python3 -c "import venv" 2>/dev/null; then
+        MISSING+=("python3-venv")
+    fi
+fi
+
+if ! command -v rsync &>/dev/null; then
+    MISSING+=("rsync")
+fi
+
+if ! command -v systemctl &>/dev/null; then
+    MISSING+=("systemd")
+fi
+
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+    echo "Error: missing required packages: ${MISSING[*]}" >&2
+    echo "" >&2
+    echo "Install them with:" >&2
+    echo "  sudo apt install ${MISSING[*]}" >&2
+    exit 1
+fi
+
+# ------------------------------------------------------------------ #
 # interactive prompts (unless --batch)
 # ------------------------------------------------------------------ #
 if [[ "${BATCH}" == false ]]; then
