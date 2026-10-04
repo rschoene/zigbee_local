@@ -4,7 +4,9 @@ Schema
 ------
 - ``devices``   : every device a source has reported (with its known metrics).
 - ``monitored`` : the registry of (source, device, metric) tuples we record.
-- ``readings``  : the time series of readings for monitored metrics.
+- ``metrics``   : one row per (source, device, metric) with its unit; readings
+                  reference it by id.
+- ``readings``  : the time series of readings, keyed by ``metric_id``.
 
 Everything is keyed by the composite ``(source_id, device_id)`` so multiple
 sources can coexist even if they expose devices with the same id/name.
@@ -46,17 +48,21 @@ CREATE TABLE IF NOT EXISTS monitored (
     PRIMARY KEY (source_id, device_id, metric)
 );
 
-CREATE TABLE IF NOT EXISTS readings (
+CREATE TABLE IF NOT EXISTS metrics (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     source_id  TEXT NOT NULL,
     device_id  TEXT NOT NULL,
     metric     TEXT NOT NULL,
-    value      REAL,
     unit       TEXT,
+    UNIQUE (source_id, device_id, metric)
+);
+
+CREATE TABLE IF NOT EXISTS readings (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    metric_id  INTEGER NOT NULL REFERENCES metrics(id),
+    value      REAL,
     ts         TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_readings_id ON readings(id);
-CREATE INDEX IF NOT EXISTS idx_readings_lookup ON readings(source_id, device_id, metric, id);
 
 CREATE TABLE IF NOT EXISTS reporting_config (
     source_id    TEXT NOT NULL,
@@ -86,6 +92,7 @@ class Database:
             parent.mkdir(parents=True, exist_ok=True)
         self._path = path
         self._lock = threading.Lock()
+        self._metric_cache: dict[tuple[str, str, str], int] = {}
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         with self._lock:
@@ -108,6 +115,58 @@ class Database:
         rcols = {r["name"] for r in self._conn.execute("PRAGMA table_info(readings)")}
         if "value_text" in rcols:
             self._conn.execute("ALTER TABLE readings DROP COLUMN value_text")
+
+        # Normalize readings: split out a metrics table and reference it by id.
+        # Old schema stored (source_id, device_id, metric, unit) inline per row.
+        if "source_id" in rcols:
+            self._migrate_readings_normalized()
+
+        # Indexes on the normalized readings table (created here so they run
+        # after the migration has ensured the table has a metric_id column).
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_readings_id ON readings(id)")
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_readings_metric ON readings(metric_id, id)"
+        )
+
+    def _migrate_readings_normalized(self) -> None:
+        """Rebuild ``readings`` to reference a ``metrics`` table by id."""
+        c = self._conn
+        # Backfill metrics with the most recent unit seen for each metric.
+        c.execute(
+            """
+            INSERT OR IGNORE INTO metrics(source_id, device_id, metric, unit)
+            SELECT r.source_id, r.device_id, r.metric, r.unit
+            FROM readings r
+            JOIN (
+                SELECT source_id, device_id, metric, MAX(id) AS max_id
+                FROM readings
+                GROUP BY source_id, device_id, metric
+            ) latest ON latest.max_id = r.id
+            """
+        )
+        c.execute("ALTER TABLE readings RENAME TO readings_old")
+        c.execute(
+            """
+            CREATE TABLE readings (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                metric_id  INTEGER NOT NULL REFERENCES metrics(id),
+                value      REAL,
+                ts         TEXT NOT NULL
+            )
+            """
+        )
+        c.execute(
+            """
+            INSERT INTO readings(id, metric_id, value, ts)
+            SELECT r.id, m.id, r.value, r.ts
+            FROM readings_old r
+            JOIN metrics m
+              ON m.source_id = r.source_id
+             AND m.device_id = r.device_id
+             AND m.metric    = r.metric
+            """
+        )
+        c.execute("DROP TABLE readings_old")
 
     def close(self) -> None:
         with self._lock:
@@ -208,7 +267,8 @@ class Database:
         """Return the set of (source_id, device_id) that have >=1 reading."""
         with self._lock:
             rows = self._conn.execute(
-                "SELECT DISTINCT source_id, device_id FROM readings"
+                "SELECT DISTINCT m.source_id, m.device_id "
+                "FROM readings r JOIN metrics m ON m.id = r.metric_id"
             ).fetchall()
         return {(r["source_id"], r["device_id"]) for r in rows}
 
@@ -269,13 +329,34 @@ class Database:
     # ------------------------------------------------------------------ #
     # readings
     # ------------------------------------------------------------------ #
+    def _metric_id(self, source_id: str, device_id: str, metric: str, unit: str | None) -> int:
+        """Return the metrics.id for a (source, device, metric), creating it if new.
+
+        Must be called with ``self._lock`` held.
+        """
+        key = (source_id, device_id, metric)
+        mid = self._metric_cache.get(key)
+        if mid is None:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO metrics(source_id, device_id, metric, unit) "
+                "VALUES(?,?,?,?)",
+                (source_id, device_id, metric, unit),
+            )
+            row = self._conn.execute(
+                "SELECT id FROM metrics WHERE source_id=? AND device_id=? AND metric=?",
+                (source_id, device_id, metric),
+            ).fetchone()
+            mid = int(row["id"])
+            self._metric_cache[key] = mid
+        return mid
+
     def insert_reading(self, r) -> None:
         ts = r.ts.isoformat() if hasattr(r.ts, "isoformat") else str(r.ts)
         with self._lock, self._conn:
+            mid = self._metric_id(r.source_id, r.device_id, r.metric, r.unit)
             self._conn.execute(
-                "INSERT INTO readings(source_id, device_id, metric, value, unit, ts) "
-                "VALUES(?,?,?,?,?,?)",
-                (r.source_id, r.device_id, r.metric, r.value, r.unit, ts),
+                "INSERT INTO readings(metric_id, value, ts) VALUES(?,?,?)",
+                (mid, r.value, ts),
             )
 
     def max_reading_id(self) -> int:
@@ -286,43 +367,38 @@ class Database:
     def readings_since(self, last_id: int, limit: int = 500) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, source_id, device_id, metric, value, unit, ts "
-                "FROM readings WHERE id > ? ORDER BY id ASC LIMIT ?",
+                "SELECT r.id, m.source_id, m.device_id, m.metric, r.value, m.unit, r.ts "
+                "FROM readings r JOIN metrics m ON m.id = r.metric_id "
+                "WHERE r.id > ? ORDER BY r.id ASC LIMIT ?",
                 (last_id, limit),
             ).fetchall()
         return [dict(r) for r in rows]
 
     def metric_units(self, source_id: str | None = None) -> dict[tuple[str, str, str], str]:
-        """Map (source_id, device_id, metric) -> most recent unit seen in readings."""
-        where = "WHERE source_id = ?" if source_id else ""
-        args: list[Any] = [source_id] if source_id else []
-        q = f"""
-            SELECT r.source_id, r.device_id, r.metric, r.unit
-            FROM readings r
-            JOIN (
-                SELECT source_id, device_id, metric, MAX(id) AS max_id
-                FROM readings
-                {where}
-                GROUP BY source_id, device_id, metric
-            ) latest ON latest.max_id = r.id
-        """
+        """Map (source_id, device_id, metric) -> unit, from the metrics table."""
+        q = "SELECT source_id, device_id, metric, unit FROM metrics"
+        args: list[Any] = []
+        if source_id:
+            q += " WHERE source_id = ?"
+            args.append(source_id)
         with self._lock:
             rows = self._conn.execute(q, args).fetchall()
         return {(r["source_id"], r["device_id"], r["metric"]): r["unit"] for r in rows}
 
     def latest_readings(self, source_id: str | None = None) -> list[dict[str, Any]]:
-        where = "WHERE source_id = ?" if source_id else ""
+        where = "WHERE m.source_id = ?" if source_id else ""
         args: list[Any] = [source_id] if source_id else []
         q = f"""
-            SELECT r.source_id, r.device_id, r.metric, r.value, r.unit, r.ts
+            SELECT m.source_id, m.device_id, m.metric, r.value, m.unit, r.ts
             FROM readings r
+            JOIN metrics m ON m.id = r.metric_id
             JOIN (
-                SELECT source_id, device_id, metric, MAX(id) AS max_id
+                SELECT metric_id, MAX(id) AS max_id
                 FROM readings
-                {where}
-                GROUP BY source_id, device_id, metric
+                GROUP BY metric_id
             ) latest ON latest.max_id = r.id
-            ORDER BY r.source_id, r.device_id, r.metric
+            {where}
+            ORDER BY m.source_id, m.device_id, m.metric
         """
         with self._lock:
             rows = self._conn.execute(q, args).fetchall()
