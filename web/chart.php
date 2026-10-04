@@ -67,6 +67,32 @@ function setDefaultRange() {
     document.getElementById('time-to').value = toLocalInput(now);
 }
 
+// --- Bucketing: aggregate raw points into min/max/avg per bucket ---
+function bucketData(points, canvasWidth) {
+    // points: [{t, v}] sorted by time
+    const bucketCount = Math.max(50, Math.floor(canvasWidth / 3));
+    if (points.length <= bucketCount) {
+        return points.map(p => ({ t: p.t, min: p.v, max: p.v, avg: p.v }));
+    }
+    const t0 = new Date(points[0].t).getTime();
+    const t1 = new Date(points[points.length - 1].t).getTime();
+    const span = t1 - t0 || 1;
+    const buckets = Array.from({ length: bucketCount }, (_, i) => ({
+        t: new Date(t0 + (span * (i + 0.5)) / bucketCount).toISOString(),
+        sum: 0, count: 0, min: Infinity, max: -Infinity
+    }));
+    for (const p of points) {
+        const idx = Math.min(bucketCount - 1, Math.floor((new Date(p.t).getTime() - t0) / span * bucketCount));
+        const b = buckets[idx];
+        b.sum += p.v; b.count++;
+        if (p.v < b.min) b.min = p.v;
+        if (p.v > b.max) b.max = p.v;
+    }
+    return buckets.filter(b => b.count > 0).map(b => ({
+        t: b.t, min: b.min, max: b.max, avg: b.sum / b.count
+    }));
+}
+
 // --- Chart creation ---
 function createChart(key, displayName) {
     const container = document.getElementById('charts');
@@ -89,17 +115,38 @@ function createChart(key, displayName) {
         type: 'line',
         data: {
             labels: [],
-            datasets: [{
-                label: displayName,
-                data: [],
-                borderColor: '#3b82f6',
-                backgroundColor: 'rgba(59,130,246,0.1)',
-                borderWidth: 2,
-                pointRadius: 0,
-                pointHitRadius: 5,
-                tension: 0.2,
-                fill: true,
-            }]
+            datasets: [
+                {
+                    label: 'max',
+                    data: [],
+                    borderColor: 'rgba(59,130,246,0.35)',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    pointHitRadius: 0,
+                    tension: 0.2,
+                    fill: false,
+                },
+                {
+                    label: 'min',
+                    data: [],
+                    borderColor: 'rgba(59,130,246,0.35)',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    pointHitRadius: 0,
+                    tension: 0.2,
+                    fill: { target: 0, above: 'rgba(59,130,246,0.08)' },
+                },
+                {
+                    label: displayName,
+                    data: [],
+                    borderColor: '#3b82f6',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHitRadius: 5,
+                    tension: 0.2,
+                    fill: false,
+                },
+            ]
         },
         options: {
             responsive: true,
@@ -110,7 +157,13 @@ function createChart(key, displayName) {
                 tooltip: {
                     callbacks: {
                         title: items => new Date(items[0].parsed.x).toLocaleString(),
-                        label: item => `${item.parsed.y} ${charts[key].unit || ''}`
+                        label: item => {
+                            const u = charts[key].unit || '';
+                            const name = item.dataset.label;
+                            if (name === 'max') return `Max: ${item.parsed.y} ${u}`;
+                            if (name === 'min') return `Min: ${item.parsed.y} ${u}`;
+                            return `Avg: ${item.parsed.y} ${u}`;
+                        }
                     }
                 }
             },
@@ -134,9 +187,15 @@ async function fetchMetric(key) {
 
     const chart = charts[key];
     chart.unit = json.unit;
-    chart.data.datasets[0].label = `${json.metric} (${json.unit})`;
-    chart.data.labels = json.data.map(d => d.t);
-    chart.data.datasets[0].data = json.data.map(d => ({ x: d.t, y: d.v }));
+    chart.rawData = json.data;
+
+    const canvasWidth = chart.canvas.width || 600;
+    const buckets = bucketData(json.data, canvasWidth);
+    chart.data.labels = buckets.map(b => b.t);
+    chart.data.datasets[0].data = buckets.map(b => ({ x: b.t, y: b.max }));
+    chart.data.datasets[1].data = buckets.map(b => ({ x: b.t, y: b.min }));
+    chart.data.datasets[2].data = buckets.map(b => ({ x: b.t, y: b.avg }));
+    chart.data.datasets[2].label = `${json.metric} (${json.unit})`;
     chart.options.scales.y.title = {
         display: true,
         text: json.unit || '',
@@ -155,8 +214,9 @@ async function refreshAll() {
 function downloadPNG(key) {
     const chart = charts[key];
     if (!chart) return;
+    const name = (METRICS[key] || 'chart').replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '_');
     const link = document.createElement('a');
-    link.download = `${key.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+    link.download = `${name}.png`;
     link.href = chart.toBase64Image('image/png', 1);
     link.click();
 }
@@ -165,14 +225,16 @@ function downloadCSV(key) {
     const chart = charts[key];
     if (!chart) return;
     const unit = chart.unit || '';
+    const name = (METRICS[key] || 'chart').replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '_');
     const rows = [['timestamp', 'value' + (unit ? ` (${unit})` : '')]];
-    for (const pt of chart.data.datasets[0].data) {
-        rows.push([pt.x, pt.y]);
+    const data = chart.rawData || chart.data.datasets[2].data.map(p => ({ t: p.x, v: p.y }));
+    for (const pt of data) {
+        rows.push([pt.t, pt.v]);
     }
     const csv = rows.map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const link = document.createElement('a');
-    link.download = `${key.replace(/[^a-zA-Z0-9]/g, '_')}.csv`;
+    link.download = `${name}.csv`;
     link.href = URL.createObjectURL(blob);
     link.click();
     URL.revokeObjectURL(link.href);
