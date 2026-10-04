@@ -73,11 +73,12 @@ class Service:
         )
 
     def _on_device_left(self, source_id: str, device_id: str) -> None:
-        # Stop monitoring a device that left the network and mark it as left,
-        # but keep its historical readings and its `devices` row as a record.
-        self.db.remove_monitored(source_id, device_id)
+        # Mark the device as left but keep its monitored entries.
+        # This way, when the device re-joins (e.g. after a coordinator
+        # reboot), monitoring resumes automatically without user action.
+        # To stop monitoring a device permanently, use `zigbee unmonitor`.
         self.db.mark_device_left(source_id, device_id)
-        log.info("[%s] device left (auto-unmonitored): %s", source_id, device_id)
+        log.info("[%s] device left: %s", source_id, device_id)
 
     def _on_reading(self, r: Reading) -> None:
         if (r.source_id, r.device_id, r.metric) in self._monitored:
