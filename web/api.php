@@ -78,8 +78,8 @@ try {
     exit;
 }
 
-// Parse metric key: "source_id:device_id:metric"
-$parts = explode(':', $metricKey, 3);
+// Parse metric key: "source_id|device_id|metric"
+$parts = explode('|', $metricKey, 3);
 if (count($parts) !== 3) {
     http_response_code(400);
     header('Content-Type: application/json');
