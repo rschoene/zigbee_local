@@ -199,13 +199,30 @@ class Service:
                 pass
 
         log.info("Starting %d source(s): %s", len(self.sources), [s.source_id for s in self.sources])
+        started: list[Source] = []
+        start_failed = False
         for src in self.sources:
             try:
                 await src.start()
                 self.db.set_source_status(src.source_id, "ok")
+                started.append(src)
             except Exception as e:
                 log.exception("Failed to start source %s", src.source_id)
                 self.db.set_source_status(src.source_id, "error", str(e))
+                start_failed = True
+
+        # Fail fast: if any source could not start (e.g. dongle missing or
+        # unreadable), stop the ones that did start and exit non-zero so
+        # systemd marks the service as failed instead of running broken.
+        if start_failed:
+            log.error("One or more sources failed to start; exiting.")
+            for src in started:
+                try:
+                    await src.stop()
+                except Exception:  # pragma: no cover - best effort
+                    log.exception("Error stopping source %s", src.source_id)
+            self.db.close()
+            raise SystemExit(1)
 
         refresh = asyncio.create_task(self._refresh_monitored())
         cmd_server = asyncio.create_task(self._command_server())

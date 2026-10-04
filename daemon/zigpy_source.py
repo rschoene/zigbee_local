@@ -158,7 +158,11 @@ class ZigpySource(Source):
             self._reinit_task = None
         if self._app is not None:
             try:
-                await self._app.shutdown()
+                # Timeout: if the dongle is unplugged, shutdown can hang
+                # waiting for serial I/O. 5 s is plenty for a clean close.
+                await asyncio.wait_for(self._app.shutdown(), timeout=5.0)
+            except asyncio.TimeoutError:
+                log.warning("zigpy shutdown timed out (dongle unresponsive?)")
             except Exception:  # pragma: no cover - best effort
                 log.exception("Error shutting down zigpy app")
             self._app = None
