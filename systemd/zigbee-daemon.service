@@ -1,6 +1,11 @@
 [Unit]
 Description=Zigbee Daemon (zigpy-based Zigbee coordinator)
 After=network.target
+# If the dongle is missing, the daemon exits(1) and systemd retries.
+# After 5 failures within 60 s, systemd gives up and marks the service
+# as failed. Re-plug the dongle and run: systemctl start zigbee-daemon
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple

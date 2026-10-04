@@ -52,6 +52,7 @@ class Service:
         self.sources: list[Source] = [build_source(s) for s in config.sources]
         self._monitored: set[tuple[str, str, str]] = set()
         self._stop = asyncio.Event()
+        self._connection_lost = False
         # Unix socket path for the command server (next to the DB file).
         db_dir = Path(config.database).parent
         self._socket_path = db_dir / "daemon.sock"
@@ -60,6 +61,7 @@ class Service:
             src.set_device_handler(self._on_device)
             src.set_reading_handler(self._on_reading)
             src.set_device_left_handler(self._on_device_left)
+            src.set_connection_lost_handler(self._on_connection_lost)
 
     # ------------------------------------------------------------------ #
     # handlers
@@ -80,6 +82,14 @@ class Service:
     def _on_reading(self, r: Reading) -> None:
         if (r.source_id, r.device_id, r.metric) in self._monitored:
             self.db.insert_reading(r)
+
+    def _on_connection_lost(self, source_id: str, exc: Exception | None) -> None:
+        # A source lost its hardware connection (e.g. dongle unplugged).
+        # Flag it so the main loop exits non-zero; systemd will then
+        # restart (rate-limited) and the fail-fast start check re-runs.
+        log.error("[%s] connection lost; daemon will exit", source_id)
+        self._connection_lost = True
+        self._stop.set()
 
     async def _refresh_monitored(self) -> None:
         """Periodically reload the monitored set from the DB."""
@@ -243,6 +253,12 @@ class Service:
             except FileNotFoundError:
                 pass
             log.info("Daemon stopped.")
+
+        # Exit non-zero if a source lost its hardware connection (e.g. dongle
+        # unplugged) so systemd restarts (rate-limited) and the fail-fast
+        # start check re-runs.
+        if self._connection_lost:
+            raise SystemExit(1)
 
 
 def main() -> None:

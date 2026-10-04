@@ -47,6 +47,7 @@ class DeviceInfo:
 ReadingHandler = Callable[[Reading], None]
 DeviceHandler = Callable[[DeviceInfo], None]
 DeviceLeftHandler = Callable[[str, str], None]  # (source_id, device_id)
+ConnectionLostHandler = Callable[[str, Exception | None], None]  # (source_id, exc)
 
 
 class Source(abc.ABC):
@@ -57,6 +58,7 @@ class Source(abc.ABC):
         self._on_reading: ReadingHandler | None = None
         self._on_device: DeviceHandler | None = None
         self._on_device_left: DeviceLeftHandler | None = None
+        self._on_connection_lost: ConnectionLostHandler | None = None
 
     # -- handler registration (called by the service) ------------------- #
     def set_reading_handler(self, cb: ReadingHandler) -> None:
@@ -67,6 +69,9 @@ class Source(abc.ABC):
 
     def set_device_left_handler(self, cb: DeviceLeftHandler) -> None:
         self._on_device_left = cb
+
+    def set_connection_lost_handler(self, cb: ConnectionLostHandler) -> None:
+        self._on_connection_lost = cb
 
     # -- helpers for subclasses ----------------------------------------- #
     def _emit_reading(
@@ -118,6 +123,11 @@ class Source(abc.ABC):
         if self._on_device_left is None:
             return
         self._on_device_left(self.source_id, device_id)
+
+    def _emit_connection_lost(self, exc: Exception | None = None) -> None:
+        if self._on_connection_lost is None:
+            return
+        self._on_connection_lost(self.source_id, exc)
 
     # -- control --------------------------------------------------------- #
     async def permit_join(self, time_s: int = 60) -> None:
