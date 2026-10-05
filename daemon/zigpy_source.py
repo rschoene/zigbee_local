@@ -260,7 +260,6 @@ class ZigpySource(Source):
         if device_id in self._attached:
             log.debug("[%s] already attached, skipping: %s", self.source_id, device_id)
             return
-        self._attached.add(device_id)
         name_map = self._build_metric_name_map(device)
         n_eps = len(device.non_zdo_endpoints)
         n_clusters = 0
@@ -273,6 +272,11 @@ class ZigpySource(Source):
                     self._subscribe_cluster_reports(device_id, cluster, name_map)
                 except Exception:  # pragma: no cover - defensive
                     log.debug("Could not attach listener to cluster %s", cluster, exc_info=True)
+        # Only mark as attached if we found measurement clusters. If none were
+        # found (e.g. device_joined fired before discovery), leave it out so
+        # the next device_initialized can attach properly.
+        if n_clusters > 0:
+            self._attached.add(device_id)
         metrics = sorted(set(name_map.values()))
         # metric name -> [cluster_id, attr_id] (for CLI configure-reporting)
         metric_map = {
