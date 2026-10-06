@@ -141,6 +141,21 @@ main {
     background: #475569;
 }
 
+.btn-link {
+    background: #334155;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.6rem;
+}
+
+.btn-link:hover {
+    background: #475569;
+}
+
+.chart-card.highlight {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+}
+
 .chart-card canvas {
     width: 100% !important;
     height: 280px !important;

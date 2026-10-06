@@ -52,6 +52,11 @@ $metrics = $config['users'][$user]['metrics']; // key => display name
 
 <script>
 const METRICS = <?= json_encode($metrics) ?>;
+const DEEP_LINK = {
+    metric: <?= json_encode($_GET['metric'] ?? null) ?>,
+    from:   <?= json_encode($_GET['from'] ?? null) ?>,
+    to:     <?= json_encode($_GET['to'] ?? null) ?>,
+};
 const charts = {};
 
 // --- Time helpers ---
@@ -103,6 +108,7 @@ function createChart(key, displayName) {
         <div class="chart-header">
             <h2>${displayName}</h2>
             <div class="chart-actions">
+                <button class="btn btn-sm btn-link" data-key="${key}" title="Copy link to this chart">🔗</button>
                 <button class="btn btn-sm btn-download" data-action="png" data-key="${key}">PNG</button>
                 <button class="btn btn-sm btn-download" data-action="csv" data-key="${key}">CSV</button>
             </div>
@@ -245,13 +251,52 @@ function downloadCSV(key) {
     URL.revokeObjectURL(link.href);
 }
 
+// --- Deep link: build a shareable URL for a chart + current time range ---
+function buildChartLink(key) {
+    const params = new URLSearchParams();
+    if (key) params.set('metric', key);
+    const from = document.getElementById('time-from').value;
+    const to = document.getElementById('time-to').value;
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    return `${location.origin}${location.pathname}?${params.toString()}`;
+}
+
+function copyChartLink(key) {
+    const url = buildChartLink(key);
+    navigator.clipboard.writeText(url).then(() => {
+        const btn = document.querySelector(`.btn-link[data-key="${CSS.escape(key)}"]`);
+        if (btn) {
+            const orig = btn.textContent;
+            btn.textContent = '✓';
+            setTimeout(() => { btn.textContent = orig; }, 1200);
+        }
+    });
+}
+
 // --- Init ---
 document.addEventListener('DOMContentLoaded', () => {
-    setDefaultRange();
+    // Apply deep-link time range if present, else default to last 24h.
+    if (DEEP_LINK.from && DEEP_LINK.to) {
+        document.getElementById('time-from').value = DEEP_LINK.from;
+        document.getElementById('time-to').value = DEEP_LINK.to;
+    } else {
+        setDefaultRange();
+    }
+
     for (const [key, name] of Object.entries(METRICS)) {
         createChart(key, name);
     }
     refreshAll();
+
+    // If a specific metric was deep-linked, scroll to it and highlight.
+    if (DEEP_LINK.metric && METRICS[DEEP_LINK.metric]) {
+        const el = document.getElementById('chart-' + DEEP_LINK.metric.replace(/:/g, '-'));
+        if (el) {
+            el.classList.add('highlight');
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
 
     document.getElementById('btn-refresh').addEventListener('click', refreshAll);
 
@@ -272,6 +317,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btn.dataset.action === 'png') downloadPNG(key);
             else if (btn.dataset.action === 'csv') downloadCSV(key);
         });
+    });
+
+    document.querySelectorAll('.btn-link').forEach(btn => {
+        btn.addEventListener('click', () => copyChartLink(btn.dataset.key));
     });
 });
 </script>
