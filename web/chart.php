@@ -51,7 +51,10 @@ $metrics = $config['users'][$user]['metrics']; // key => display name
 </main>
 
 <script>
-const METRICS = <?= json_encode($metrics) ?>;
+// Only display names are exposed to the client. The real metric keys
+// (source_id|device_uid|metric) stay server-side; the client uses an
+// opaque index into this array.
+const METRIC_NAMES = <?= json_encode(array_values($metrics)) ?>;
 const DEEP_LINK = {
     metric: <?= json_encode($_GET['metric'] ?? null) ?>,
     from:   <?= json_encode($_GET['from'] ?? null) ?>,
@@ -99,25 +102,25 @@ function bucketData(points, canvasWidth) {
 }
 
 // --- Chart creation ---
-function createChart(key, displayName) {
+function createChart(idx, displayName) {
     const container = document.getElementById('charts');
     const div = document.createElement('div');
     div.className = 'chart-card';
-    div.id = 'chart-' + key.replace(/:/g, '-');
+    div.id = 'chart-' + idx;
     div.innerHTML = `
         <div class="chart-header">
             <h2>${displayName}</h2>
             <div class="chart-actions">
-                <button class="btn btn-sm btn-link" data-key="${key}" title="Copy link to this chart">🔗</button>
-                <button class="btn btn-sm btn-download" data-action="png" data-key="${key}">PNG</button>
-                <button class="btn btn-sm btn-download" data-action="csv" data-key="${key}">CSV</button>
+                <button class="btn btn-sm btn-link" data-key="${idx}" title="Copy link to this chart">🔗</button>
+                <button class="btn btn-sm btn-download" data-action="png" data-key="${idx}">PNG</button>
+                <button class="btn btn-sm btn-download" data-action="csv" data-key="${idx}">CSV</button>
             </div>
         </div>
         <canvas></canvas>`;
     container.appendChild(div);
 
     const ctx = div.querySelector('canvas').getContext('2d');
-    charts[key] = new Chart(ctx, {
+    charts[idx] = new Chart(ctx, {
         type: 'line',
         data: {
             labels: [],
@@ -164,7 +167,7 @@ function createChart(key, displayName) {
                     callbacks: {
                         title: items => new Date(items[0].parsed.x).toLocaleString(),
                         label: item => {
-                            const u = charts[key].unit || '';
+                            const u = charts[idx].unit || '';
                             const name = item.dataset.label;
                             if (name === 'max') return `Max: ${item.parsed.y} ${u}`;
                             if (name === 'min') return `Min: ${item.parsed.y} ${u}`;
@@ -187,16 +190,16 @@ function toISO(localVal) {
 }
 
 // --- Data fetching ---
-async function fetchMetric(key) {
+async function fetchMetric(idx) {
     const from = toISO(document.getElementById('time-from').value);
     const to = toISO(document.getElementById('time-to').value);
-    const url = `api.php?metric=${encodeURIComponent(key)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    const url = `api.php?metric=${idx}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
     const res = await fetch(url);
     if (!res.ok) return;
     const json = await res.json();
     if (json.error) return;
 
-    const chart = charts[key];
+    const chart = charts[idx];
     chart.unit = json.unit;
     chart.rawData = json.data;
 
@@ -216,27 +219,27 @@ async function fetchMetric(key) {
 }
 
 async function refreshAll() {
-    for (const key of Object.keys(METRICS)) {
-        await fetchMetric(key);
+    for (let idx = 0; idx < METRIC_NAMES.length; idx++) {
+        await fetchMetric(idx);
     }
 }
 
 // --- Download handlers ---
-function downloadPNG(key) {
-    const chart = charts[key];
+function downloadPNG(idx) {
+    const chart = charts[idx];
     if (!chart) return;
-    const name = (METRICS[key] || 'chart').replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '_');
+    const name = (METRIC_NAMES[idx] || 'chart').replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '_');
     const link = document.createElement('a');
     link.download = `${name}.png`;
     link.href = chart.toBase64Image('image/png', 1);
     link.click();
 }
 
-function downloadCSV(key) {
-    const chart = charts[key];
+function downloadCSV(idx) {
+    const chart = charts[idx];
     if (!chart) return;
     const unit = chart.unit || '';
-    const name = (METRICS[key] || 'chart').replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '_');
+    const name = (METRIC_NAMES[idx] || 'chart').replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '_');
     const rows = [['timestamp', 'value' + (unit ? ` (${unit})` : '')]];
     const data = chart.rawData || chart.data.datasets[2].data.map(p => ({ t: p.x, v: p.y }));
     for (const pt of data) {
@@ -252,9 +255,9 @@ function downloadCSV(key) {
 }
 
 // --- Deep link: build a shareable URL for a chart + current time range ---
-function buildChartLink(key) {
+function buildChartLink(idx) {
     const params = new URLSearchParams();
-    if (key) params.set('metric', key);
+    if (idx != null) params.set('metric', idx);
     const from = document.getElementById('time-from').value;
     const to = document.getElementById('time-to').value;
     if (from) params.set('from', from);
@@ -262,10 +265,10 @@ function buildChartLink(key) {
     return `${location.origin}${location.pathname}?${params.toString()}`;
 }
 
-function copyChartLink(key) {
-    const url = buildChartLink(key);
+function copyChartLink(idx) {
+    const url = buildChartLink(idx);
     navigator.clipboard.writeText(url).then(() => {
-        const btn = document.querySelector(`.btn-link[data-key="${CSS.escape(key)}"]`);
+        const btn = document.querySelector(`.btn-link[data-key="${idx}"]`);
         if (btn) {
             const orig = btn.textContent;
             btn.textContent = '✓';
@@ -284,14 +287,15 @@ document.addEventListener('DOMContentLoaded', () => {
         setDefaultRange();
     }
 
-    for (const [key, name] of Object.entries(METRICS)) {
-        createChart(key, name);
+    for (let idx = 0; idx < METRIC_NAMES.length; idx++) {
+        createChart(idx, METRIC_NAMES[idx]);
     }
     refreshAll();
 
     // If a specific metric was deep-linked, scroll to it and highlight.
-    if (DEEP_LINK.metric && METRICS[DEEP_LINK.metric]) {
-        const el = document.getElementById('chart-' + DEEP_LINK.metric.replace(/:/g, '-'));
+    const linkIdx = parseInt(DEEP_LINK.metric, 10);
+    if (!isNaN(linkIdx) && METRIC_NAMES[linkIdx] != null) {
+        const el = document.getElementById('chart-' + linkIdx);
         if (el) {
             el.classList.add('highlight');
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });

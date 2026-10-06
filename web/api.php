@@ -24,13 +24,17 @@ $user = $_SESSION['user'];
 $userConfig = $config['users'][$user];
 $allowedMetrics = $userConfig['metrics']; // key => display name
 
-$metricKey = $_GET['metric'] ?? '';
-if (!array_key_exists($metricKey, $allowedMetrics)) {
+// The client only ever sends an opaque index into the user's metric list,
+// never the real key (which contains the device UID + source id).
+$metricIdx = (int)($_GET['metric'] ?? -1);
+$metricKeys = array_keys($allowedMetrics);
+if ($metricIdx < 0 || $metricIdx >= count($metricKeys)) {
     http_response_code(403);
     header('Content-Type: application/json');
     echo json_encode(['error' => 'forbidden']);
     exit;
 }
+$metricKey = $metricKeys[$metricIdx];
 
 // Parse time range
 $to = $_GET['to'] ?? date('c');
