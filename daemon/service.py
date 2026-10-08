@@ -67,10 +67,20 @@ class Service:
     # handlers
     # ------------------------------------------------------------------ #
     def _on_device(self, info: DeviceInfo) -> None:
+        # Detect re-attachment: device was previously marked as left.
+        was_left = self.db.device_was_left(info.source_id, info.device_id)
         self.db.upsert_device(
             info.source_id, info.device_id, info.name, info.metrics,
             metric_map=info.metric_map,
         )
+        if was_left:
+            log.info(
+                "[%s] device re-attached: %s — re-applying reporting configs",
+                info.source_id, info.device_id,
+            )
+            asyncio.create_task(
+                self._reapply_device_reporting(info.source_id, info.device_id)
+            )
 
     def _on_device_left(self, source_id: str, device_id: str) -> None:
         # Mark the device as left but keep its monitored entries.
@@ -128,6 +138,56 @@ class Service:
             try:
                 await src.configure_reporting(
                     device_id,
+                    cluster_id,
+                    attr_id,
+                    cfg["min_interval"],
+                    cfg["max_interval"],
+                    cfg.get("reportable_change"),
+                )
+                log.info(
+                    "Re-applied reporting config: %s/%s cluster=0x%04X attr=0x%04X",
+                    source_id, device_id, cluster_id, attr_id,
+                )
+            except Exception as e:
+                log.warning(
+                    "Failed to re-apply reporting config for %s/%s "
+                    "cluster=0x%04X attr=0x%04X: %s",
+                    source_id, device_id, cluster_id, attr_id, e,
+                )
+
+    async def _reapply_device_reporting(self, source_id: str, device_id: str) -> None:
+        """Re-apply stored reporting configs for a specific device after re-attachment.
+
+        When a device re-joins the network (e.g. after low signal), its
+        reporting configuration is lost and it falls back to the default
+        interval. This method re-sends the previously configured reporting
+        intervals so the device resumes its expected reporting rate.
+        """
+        # Give the device a moment to fully initialize.
+        await asyncio.sleep(5)
+
+        configs = self.db.get_reporting_config(source_id)
+        device_configs = {
+            key: cfg for key, cfg in configs.items()
+            if key[1] == device_id  # key = (source_id, device_id, cluster_id, attr_id)
+        }
+        if not device_configs:
+            return
+
+        src = next((s for s in self.sources if s.source_id == source_id), None)
+        if src is None:
+            return
+
+        log.info(
+            "Re-applying %d reporting config(s) for re-attached device %s/%s",
+            len(device_configs), source_id, device_id,
+        )
+        for (src_id, dev_id, cluster_id, attr_id), cfg in device_configs.items():
+            if self._stop.is_set():
+                return
+            try:
+                await src.configure_reporting(
+                    dev_id,
                     cluster_id,
                     attr_id,
                     cfg["min_interval"],

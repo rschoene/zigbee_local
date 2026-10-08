@@ -210,6 +210,15 @@ class Database:
                 (now, source_id, device_id),
             )
 
+    def device_was_left(self, source_id: str, device_id: str) -> bool:
+        """Return True if the device is currently marked as left (left_at IS NOT NULL)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM devices WHERE source_id = ? AND device_id = ? AND left_at IS NOT NULL",
+                (source_id, device_id),
+            ).fetchone()
+        return row is not None
+
     def list_devices(self, source_id: str | None = None) -> list[dict[str, Any]]:
         q = "SELECT source_id, device_id, name, metrics, metric_map, first_seen, last_seen, left_at FROM devices"
         args: list[Any] = []
