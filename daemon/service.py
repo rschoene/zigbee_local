@@ -22,6 +22,7 @@ import logging
 import os
 import signal
 from pathlib import Path
+from typing import Any
 
 from .config import Config, SourceConfig
 from .db import Database
@@ -129,31 +130,50 @@ class Service:
             return
 
         log.info("Re-applying %d reporting config(s) on startup", len(configs))
+        tasks = []
         for (source_id, device_id, cluster_id, attr_id), cfg in configs.items():
             if self._stop.is_set():
                 return
             src = next((s for s in self.sources if s.source_id == source_id), None)
             if src is None:
                 continue
-            try:
-                await src.configure_reporting(
-                    device_id,
-                    cluster_id,
-                    attr_id,
-                    cfg["min_interval"],
-                    cfg["max_interval"],
-                    cfg.get("reportable_change"),
+            tasks.append(asyncio.create_task(
+                self._apply_single_reporting_config(
+                    src, source_id, device_id, cluster_id, attr_id, cfg,
                 )
-                log.info(
-                    "Re-applied reporting config: %s/%s cluster=0x%04X attr=0x%04X",
-                    source_id, device_id, cluster_id, attr_id,
-                )
-            except Exception as e:
-                log.warning(
-                    "Failed to re-apply reporting config for %s/%s "
-                    "cluster=0x%04X attr=0x%04X: %s",
-                    source_id, device_id, cluster_id, attr_id, e,
-                )
+            ))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _apply_single_reporting_config(
+        self,
+        src: Source,
+        source_id: str,
+        device_id: str,
+        cluster_id: int,
+        attr_id: int,
+        cfg: dict[str, Any],
+    ) -> None:
+        """Apply a single reporting config, logging success or failure."""
+        try:
+            await src.configure_reporting(
+                device_id,
+                cluster_id,
+                attr_id,
+                cfg["min_interval"],
+                cfg["max_interval"],
+                cfg.get("reportable_change"),
+            )
+            log.info(
+                "Re-applied reporting config: %s/%s cluster=0x%04X attr=0x%04X",
+                source_id, device_id, cluster_id, attr_id,
+            )
+        except Exception as e:
+            log.warning(
+                "Failed to re-apply reporting config for %s/%s "
+                "cluster=0x%04X attr=0x%04X: %s",
+                source_id, device_id, cluster_id, attr_id, e,
+            )
 
     async def _reapply_device_reporting(self, source_id: str, device_id: str) -> None:
         """Re-apply stored reporting configs for a specific device after re-attachment.
@@ -182,28 +202,17 @@ class Service:
             "Re-applying %d reporting config(s) for re-attached device %s/%s",
             len(device_configs), source_id, device_id,
         )
+        tasks = []
         for (src_id, dev_id, cluster_id, attr_id), cfg in device_configs.items():
             if self._stop.is_set():
                 return
-            try:
-                await src.configure_reporting(
-                    dev_id,
-                    cluster_id,
-                    attr_id,
-                    cfg["min_interval"],
-                    cfg["max_interval"],
-                    cfg.get("reportable_change"),
+            tasks.append(asyncio.create_task(
+                self._apply_single_reporting_config(
+                    src, source_id, dev_id, cluster_id, attr_id, cfg,
                 )
-                log.info(
-                    "Re-applied reporting config: %s/%s cluster=0x%04X attr=0x%04X",
-                    source_id, device_id, cluster_id, attr_id,
-                )
-            except Exception as e:
-                log.warning(
-                    "Failed to re-apply reporting config for %s/%s "
-                    "cluster=0x%04X attr=0x%04X: %s",
-                    source_id, device_id, cluster_id, attr_id, e,
-                )
+            ))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # ------------------------------------------------------------------ #
     # command server (Unix socket)
